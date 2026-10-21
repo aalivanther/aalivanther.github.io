@@ -1,0 +1,41 @@
+---
+// Firma del portafolio: el sello bermellón y «Adrian / Akyrion · © año · derechos reservados».
+import type { Lang } from "../data/projects";
+import { signature } from "../data/site";
+import { ui } from "../i18n/ui";
+import Seal from "./Seal.astro";
+
+/** Propiedades de la firma. */
+interface Props {
+  lang: Lang;
+}
+
+const { lang } = Astro.props;
+const year = new Date().getFullYear();
+---
+
+<footer class="foot">
+  <Seal size={32} />
+  <p>{signature} · © {year} · {ui[lang].rights}</p>
+</footer>
+
+<style>
+  .foot {
+    position: absolute;
+    left: var(--gutter);
+    right: var(--gutter);
+    bottom: clamp(16px, 4vh, 40px);
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    pointer-events: none;
+  }
+
+  p {
+    margin: 0;
+    font-size: 0.78rem;
+    letter-spacing: 0.06em;
+    color: var(--ink-soft);
+  }
+</style>

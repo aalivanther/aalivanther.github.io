@@ -1,0 +1,54 @@
+---
+// Página 404 del dominio, en papel y tinta. GitHub Pages la sirve para cualquier ruta que no exista.
+import "../styles/global.css";
+import Seal from "../components/Seal.astro";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>404 — Akyrion</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    <main class="lost">
+      <h1>404</h1>
+      <nav aria-label="Back · Volver">
+        <a href="/">Home</a>
+        <a href="/es/" lang="es-MX">Inicio</a>
+      </nav>
+      <Seal size={34} />
+    </main>
+  </body>
+</html>
+
+<style>
+  .lost {
+    display: grid;
+    min-height: 100svh;
+    place-content: center;
+    justify-items: center;
+    gap: 28px;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: clamp(4rem, 16vw, 8rem);
+    font-weight: 500;
+    letter-spacing: 0.08em;
+  }
+
+  nav {
+    display: flex;
+    gap: 28px;
+    letter-spacing: 0.12em;
+    color: var(--ink-soft);
+  }
+
+  nav a:hover {
+    color: var(--ink);
+  }
+</style>

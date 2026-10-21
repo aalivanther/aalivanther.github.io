@@ -1,0 +1,320 @@
+---
+// La pintura de la portada como panel de profundidad, con los proyectos flotando encima de ella.
+// Cada proyecto está anclado a un racimo real de flores: un punto de tinta en el racimo y su nombre al lado.
+// Lo comparten la vista de escritorio («wide»: panel lateral a toda la altura, con iconos) y la primera página del
+// teléfono («tall»: la pintura arriba; tocar un nombre lleva a su página). scripts/ink/painting.ts lo anima.
+// Sin JavaScript: la imagen quieta y los nombres como lista.
+import type { Lang } from "../data/projects";
+import { projects } from "../data/projects";
+import { plumPainting } from "../data/painting";
+import { owner } from "../data/site";
+import { ui, homePath } from "../i18n/ui";
+import ProjectLinks from "./ProjectLinks.astro";
+
+/** Propiedades de la pintura. */
+interface Props {
+  lang: Lang;
+  /** «wide» en escritorio; «tall» en el teléfono. */
+  variant: "wide" | "tall";
+}
+
+const { lang, variant } = Astro.props;
+const t = ui[lang];
+const art = plumPainting;
+---
+
+<nav class:list={["tree", `tree--${variant}`]} data-tree data-variant={variant} aria-label={t.projectsLabel} style={`--ratio:${art.width / art.height}`}>
+  <div class="frame" data-painting-frame>
+    <img class="painting-img" src={art.src} alt="" aria-hidden="true" width={art.width} height={art.height} decoding="async" />
+    <canvas class="painting-gl" data-painting-gl aria-hidden="true"></canvas>
+  </div>
+  <ul class="floats" data-floats data-depth style="--d:2.9">
+    <li class="crown" data-branch data-entry data-emblem="akyrion">
+      {/* El h1 de la página está en Stage (uno solo para las dos vistas); aquí la marca es solo visual. */}
+      {
+        variant === "wide" ? (
+          <a class="title" href={homePath[lang]} data-title>
+            {owner}
+          </a>
+        ) : (
+          <span class="title">{owner}</span>
+        )
+      }
+      <span class="brand-line">{t.brandLine}</span>
+    </li>
+    {
+      projects.map((project, i) => (
+        <li class="node" data-branch data-entry data-emblem={project.slug} style={`--i:${i}`}>
+          <span class="dot" aria-hidden="true" />
+          <span class="label">
+            {variant === "wide" ? (
+              <>
+                <a class="title" href={project.demoPath} data-title>
+                  {project.name}
+                </a>
+                <em class="concept">{project.concept[lang]}</em>
+                {/* Los accesos se ven bajo el emblema (ver .label .links), pero viven aquí: con el teclado se llega a
+                    ellos justo después del nombre de su proyecto. */}
+                <ProjectLinks lang={lang} project={project} />
+              </>
+            ) : (
+              <button type="button" class="title" data-goto={i + 1}>
+                {project.name}
+              </button>
+            )}
+          </span>
+        </li>
+      ))
+    }
+  </ul>
+</nav>
+
+<noscript>
+  <style>
+    .painting-img {
+      visibility: visible !important;
+    }
+  </style>
+</noscript>
+
+<style>
+  .tree {
+    position: absolute;
+    inset: 0;
+  }
+
+  /* El panel de la pintura. Sin transform: un transform aislaría el multiply y la seda dejaría de fundirse con el
+     papel. En escritorio ocupa el lateral izquierdo a toda la altura; en el teléfono, la parte de arriba y un poco
+     más ancho que la pantalla (el tronco queda centrado y los bordes se disuelven). */
+  .frame {
+    position: absolute;
+    aspect-ratio: var(--ratio);
+  }
+
+  .tree--wide .frame {
+    left: 0;
+    top: 0;
+    height: 100svh;
+  }
+
+  /* En el teléfono, centrada en la altura disponible. */
+  .tree--tall .frame {
+    left: -10%;
+    top: max(0px, 50% - 60vw / var(--ratio));
+    width: 120%;
+  }
+
+  .painting-img,
+  .painting-gl {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    mix-blend-mode: multiply;
+  }
+
+  /* La imagen quieta solo se ve sin WebGL (o sin JavaScript). */
+  .painting-img {
+    visibility: hidden;
+  }
+
+  .tree[data-tree-painted]:not([data-gl]) .painting-img {
+    visibility: visible;
+  }
+
+  .tree:not([data-gl]) .painting-gl {
+    visibility: hidden;
+  }
+
+  /* ---------- Plano flotante: los proyectos sobre la pintura ---------- */
+  .floats {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    pointer-events: none;
+  }
+
+  .floats li {
+    pointer-events: auto;
+  }
+
+  /* Sin JavaScript: lista normal. */
+  .tree:not([data-tree-ready]) .floats {
+    position: relative;
+    padding: 12px var(--gutter);
+  }
+
+  .tree[data-tree-ready] .floats li {
+    position: absolute;
+  }
+
+  /* Halo de papel detrás de las letras: se leen sobre la pintura sin caja. */
+  .title {
+    text-shadow:
+      0 0 3px var(--paper),
+      0 0 8px var(--paper),
+      0 0 16px var(--paper),
+      0 0 26px var(--paper);
+  }
+
+  .crown .title {
+    display: inline-block;
+    font-size: clamp(2.2rem, 3.8vw, 3.6rem);
+    letter-spacing: 0.04em;
+    color: var(--ink);
+  }
+
+  .tree--tall .crown .title {
+    font-size: 2.1rem;
+  }
+
+  /* Línea de marca: seis palabras en tinta diluida bajo el nombre. */
+  .brand-line {
+    display: block;
+    margin-top: 2px;
+    font-size: clamp(0.85rem, 1vw, 1rem);
+    letter-spacing: 0.05em;
+    color: var(--ink-soft);
+    text-shadow:
+      0 0 3px var(--paper),
+      0 0 8px var(--paper),
+      0 0 14px var(--paper);
+  }
+
+  /* En el teléfono cabe en una línea y no roza el primer proyecto. */
+  .tree--tall .brand-line {
+    font-size: 0.74rem;
+    letter-spacing: 0.02em;
+  }
+
+  /* Cada nodo se coloca en su racimo: el punto queda centrado en él y el nombre sale hacia dentro de la pintura. */
+  .node {
+    width: 0;
+    height: 0;
+  }
+
+  .dot {
+    position: absolute;
+    left: -6px;
+    top: -6px;
+    width: 12px;
+    height: 12px;
+    border: 1.5px solid rgb(52 45 39 / 0.75);
+    border-radius: 50%;
+    background: var(--paper);
+    box-shadow: 0 0 0 4px rgb(244 240 230 / 0.6);
+    transition:
+      background 0.35s,
+      border-color 0.35s,
+      transform 0.5s var(--ease);
+  }
+
+  /* Nombre y, en cursiva debajo, su concepto. El nombre queda centrado en el punto: la etiqueta se sube media
+     línea del nombre (--t es su tamaño de letra). */
+  .label {
+    --t: clamp(1.15rem, 1.5vw, 1.45rem);
+    position: absolute;
+    left: 16px;
+    top: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    width: max-content;
+    margin-top: calc(var(--t) * -0.65);
+  }
+
+  .tree--tall .label {
+    --t: 1.12rem;
+  }
+
+  .node[data-left] .label {
+    left: auto;
+    right: 16px;
+    align-items: flex-end;
+    text-align: right;
+  }
+
+  .concept {
+    font-size: clamp(0.74rem, 1vw, 0.95rem);
+    font-style: italic;
+    letter-spacing: 0.04em;
+    color: var(--ink-soft);
+    text-shadow:
+      0 0 3px var(--paper),
+      0 0 8px var(--paper),
+      0 0 14px var(--paper);
+  }
+
+  /* Los nodos aparecen cuando la pintura termina de crecer, uno tras otro. */
+  .node .label,
+  .node .dot {
+    transition-property: opacity, translate, background, border-color, transform;
+    transition-duration: 0.7s;
+    transition-timing-function: var(--ease);
+  }
+
+  .tree[data-tree-ready]:not([data-tree-painted]) .node .label,
+  .tree[data-tree-ready]:not([data-tree-painted]) .node .dot {
+    opacity: 0;
+    translate: 0 6px;
+  }
+
+  .tree[data-tree-painted] .node .label,
+  .tree[data-tree-painted] .node .dot {
+    transition-delay: calc(var(--i) * 0.1s);
+  }
+
+  .label .title {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--ink);
+    font: inherit;
+    font-size: var(--t);
+    line-height: 1.3;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+  }
+
+  /* Accesos del proyecto elegido, centrados bajo el emblema de la derecha. «fixed» se mide contra el plano
+     flotante (su translate de profundidad lo vuelve el contenedor), que cubre toda la pantalla. Las medidas
+     del emblema (--art-*) las define la vista de escritorio. */
+  .label :global(.links) {
+    position: fixed;
+    right: var(--art-right);
+    top: calc(50% + var(--art-size) / 2 + 14px);
+    width: var(--art-size);
+    justify-content: center;
+    gap: 6px;
+    opacity: 0;
+    translate: 0 -4px;
+    pointer-events: none;
+    transition:
+      opacity 0.35s,
+      translate 0.35s;
+  }
+
+  /* Nodo elegido: el punto se vuelve una flor encendida y aparecen sus accesos. */
+  .node[data-lit] .dot {
+    border-color: var(--blossom);
+    background: var(--blossom);
+    transform: scale(1.25);
+  }
+
+  .node[data-lit] :global(.links),
+  .node:focus-within :global(.links) {
+    opacity: 1;
+    translate: none;
+    pointer-events: auto;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tree[data-tree-ready]:not([data-tree-painted]) .node .label,
+    .tree[data-tree-ready]:not([data-tree-painted]) .node .dot {
+      opacity: 1;
+      translate: none;
+    }
+  }
+</style>

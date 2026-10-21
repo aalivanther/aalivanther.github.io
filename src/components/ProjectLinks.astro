@@ -1,0 +1,49 @@
+---
+// Accesos rápidos de un proyecto, como iconos de tinta: demo, código en GitHub y, si existe, documentación.
+// Cada icono lleva su etiqueta accesible: en pantalla no hay texto, para los lectores de pantalla sí.
+import type { Lang, Project } from "../data/projects";
+import { repoUrl } from "../data/site";
+import { ui } from "../i18n/ui";
+import InkIcon from "./InkIcon.astro";
+
+/** Propiedades de los accesos. */
+interface Props {
+  lang: Lang;
+  project: Project;
+}
+
+const { lang, project } = Astro.props;
+const t = ui[lang];
+---
+
+<span class="links">
+  <a href={project.demoPath} aria-label={`${t.demo} ${project.name}`} title={`${t.demo} ${project.name}`} data-enter>
+    <InkIcon name="demo" />
+  </a>
+  <a href={repoUrl(project.slug)} rel="noopener" aria-label={`${t.code} ${project.name}`} title={`${t.code} ${project.name}`}>
+    <InkIcon name="github" />
+  </a>
+  {
+    project.docsPath && (
+      <a href={project.docsPath} aria-label={`${t.docs} ${project.name}`} title={`${t.docs} ${project.name}`}>
+        <InkIcon name="docs" />
+      </a>
+    )
+  }
+</span>
+
+<style>
+  .links {
+    display: inline-flex;
+    gap: 12px;
+    color: rgb(52 45 39);
+  }
+
+  /* El efecto de profundidad vive en cada icono (InkIcon): aquí solo el área de toque. */
+  .links a {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+  }
+</style>

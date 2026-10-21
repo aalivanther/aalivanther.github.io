@@ -1,0 +1,110 @@
+---
+// Esquina superior: el perfil de GitHub, el botón de contacto por correo y el cambio de idioma.
+// El correo no está entero en el HTML (lo recolectarían los bots): el enlace lo une un script al cargar.
+import type { Lang } from "../data/projects";
+import { contactEmail, githubProfile } from "../data/site";
+import { ui, homePath, otherLang } from "../i18n/ui";
+import InkIcon from "./InkIcon.astro";
+
+/** Propiedades de la barra. */
+interface Props {
+  lang: Lang;
+}
+
+const { lang } = Astro.props;
+const t = ui[lang];
+const alt = otherLang(lang);
+---
+
+<header class="top">
+  <a class="profile" href={githubProfile} rel="noopener me" aria-label={t.profile} title={t.profile}>
+    <InkIcon name="github" />
+  </a>
+  <a class="contact" href="#contacto" data-mail-user={contactEmail.user} data-mail-domain={contactEmail.domain} data-mail-subject={t.contactSubject}>
+    <InkIcon name="mail" />
+    <span>{t.contact}</span>
+  </a>
+  <a class="lang" href={homePath[alt]} hreflang={alt} lang={alt}>
+    <span aria-hidden="true">{alt.toUpperCase()}</span>
+    <span class="sr-only">{t.switchTo}</span>
+  </a>
+</header>
+
+<style>
+  .top {
+    position: absolute;
+    top: clamp(14px, 3.5vh, 36px);
+    right: var(--gutter);
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+  }
+
+  .profile {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+  }
+
+  /* Botón de contacto: el sobre de tinta y la palabra, subrayados por una pincelada que se pinta al pasar. */
+  .contact {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 2px;
+    font-size: 1rem;
+    letter-spacing: 0.06em;
+    color: var(--ink);
+  }
+
+  .contact::after {
+    content: "";
+    position: absolute;
+    left: 30px;
+    right: -6%;
+    bottom: -2px;
+    height: 0.32em;
+    background: var(--brush-line) center / 100% 100% no-repeat;
+    clip-path: inset(0 100% 0 0);
+    opacity: 0.8;
+    transition: clip-path 0.5s cubic-bezier(0.5, 0, 0.2, 1);
+  }
+
+  .contact:hover::after,
+  .contact:focus-visible::after {
+    clip-path: inset(0 0 0 0);
+  }
+
+  .lang {
+    font-size: 0.9rem;
+    letter-spacing: 0.24em;
+    color: var(--ink-soft);
+    transition: color 0.3s;
+  }
+
+  .lang:hover {
+    color: var(--ink);
+  }
+
+  @media (max-width: 420px) {
+    .top {
+      gap: 10px;
+    }
+
+    .contact span {
+      display: none;
+    }
+  }
+</style>
+
+<script>
+  // Une el correo de contacto al cargar y lo pone en el enlace (con el asunto).
+  document.querySelectorAll<HTMLAnchorElement>("[data-mail-user]").forEach((link) => {
+    const { mailUser, mailDomain, mailSubject } = link.dataset;
+    if (!mailUser || !mailDomain) return;
+    link.href = `mailto:${mailUser}@${mailDomain}?subject=${encodeURIComponent(mailSubject ?? "")}`;
+  });
+</script>

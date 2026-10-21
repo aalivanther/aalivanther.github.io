@@ -1,0 +1,47 @@
+---
+// Sello bermellón (hanko) con el monograma «Ak» tallado en blanco: el único color de la página.
+// El borde y la tinta irregulares salen de un filtro de turbulencia, como un sello prensado a mano.
+// Es decorativo: la firma ya está escrita en texto junto a él.
+
+/** Propiedades del sello. */
+interface Props {
+  /** Lado del sello en píxeles. */
+  size?: number;
+}
+
+const { size = 40 } = Astro.props;
+// Identificador propio del filtro para que varios sellos en la página no choquen.
+const filterId = `seal-${size}`;
+---
+
+<svg class="seal" width={size} height={size} viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+  <defs>
+    <filter id={filterId} x="-10%" y="-10%" width="120%" height="120%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="11" result="grain" />
+      <feDisplacementMap in="SourceGraphic" in2="grain" scale="4.5" result="rough" />
+      <feComponentTransfer in="grain" result="speckle">
+        <feFuncA type="discrete" tableValues="0 0 0 0 0 1" />
+      </feComponentTransfer>
+      <feComposite in="rough" in2="speckle" operator="out" />
+    </filter>
+  </defs>
+  <g filter={`url(#${filterId})`} transform="rotate(-2.5 50 50)">
+    <rect x="8" y="8" width="84" height="84" rx="7" fill="#c43426" />
+    <text
+      x="50"
+      y="64"
+      text-anchor="middle"
+      font-family="Yuji Syuku, Georgia, serif"
+      font-size="44"
+      font-weight="600"
+      fill="#f4f0e6">Ak</text
+    >
+  </g>
+</svg>
+
+<style>
+  .seal {
+    display: block;
+    flex: none;
+  }
+</style>

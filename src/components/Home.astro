@@ -1,0 +1,19 @@
+---
+// Página principal completa en el idioma pedido. Las dos rutas (/ en inglés y /es/ en español) solo cambian el idioma.
+import Base from "../layouts/Base.astro";
+import Stage from "./Stage.astro";
+import type { Lang } from "../data/projects";
+
+/** Propiedades de la página. */
+interface Props {
+  lang: Lang;
+}
+
+const { lang } = Astro.props;
+---
+
+<Base lang={lang}>
+  <main>
+    <Stage lang={lang} />
+  </main>
+</Base>

@@ -1,0 +1,212 @@
+---
+// Vista móvil: un elemento por pantalla, con desplazamiento horizontal que encaja página a página.
+// La primera página es el árbol de tinta (Akyrion en la copa y una rama por proyecto); tocar una rama lleva
+// a la página de ese proyecto, con su emblema, su nombre y sus accesos. Los puntos de abajo indican y llevan
+// a cada página. Solo se muestra con el criterio de MOBILE_QUERY.
+import type { Lang } from "../data/projects";
+import { projects } from "../data/projects";
+import { owner } from "../data/site";
+import { ui } from "../i18n/ui";
+import EmblemGroup from "./EmblemGroup.astro";
+import PaintingTree from "./PaintingTree.astro";
+import ProjectLinks from "./ProjectLinks.astro";
+import TechTags from "./TechTags.astro";
+
+/** Propiedades del paginador. */
+interface Props {
+  lang: Lang;
+}
+
+const { lang } = Astro.props;
+const t = ui[lang];
+const pages = [{ name: owner }, ...projects.map((p) => ({ name: p.name }))];
+---
+
+<div class="mobile" data-mobile>
+  <div class="track" data-pager>
+    <section class="slide slide--tree" data-slide data-emblem="akyrion" aria-label={owner}>
+      <div class="tree-box">
+        <PaintingTree lang={lang} variant="tall" />
+      </div>
+    </section>
+    {
+      projects.map((project) => (
+        <section class="slide" data-slide data-emblem={project.slug} aria-label={project.name}>
+          <div class="caption">
+            <TechTags lang={lang} project={project} />
+          </div>
+          <div class="art" data-slide-art>
+            <EmblemGroup hook="data-slide-ink" />
+          </div>
+          <a class="name" href={project.demoPath} data-title>
+            {project.name}
+          </a>
+          <em class="concept">{project.concept[lang]}</em>
+          <ProjectLinks lang={lang} project={project} />
+        </section>
+      ))
+    }
+  </div>
+  <nav class="dots" aria-label={t.projectsLabel}>
+    {pages.map((page) => <button type="button" data-dot aria-label={page.name} aria-current="false" />)}
+  </nav>
+</div>
+
+<style>
+  .mobile {
+    display: none;
+  }
+
+  /* Mismo criterio que MOBILE_QUERY en scripts/ink/app.ts. */
+  @media (max-width: 820px), (max-aspect-ratio: 4/5), (max-height: 500px) {
+    .mobile {
+      display: block;
+      position: absolute;
+      inset: 0;
+    }
+
+    /* Pista horizontal con encaje nativo: cada página ocupa toda la pantalla. */
+    .track {
+      display: flex;
+      height: 100%;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scroll-snap-type: x mandatory;
+      overscroll-behavior-x: contain;
+      scrollbar-width: none;
+    }
+
+    .track::-webkit-scrollbar {
+      display: none;
+    }
+
+    .slide {
+      flex: 0 0 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      padding: 72px var(--gutter) 128px;
+      scroll-snap-align: start;
+      scroll-snap-stop: always;
+    }
+
+    /* ---------- Página del árbol: la pintura arriba y las tiras colgando debajo ---------- */
+    .slide--tree {
+      align-items: stretch;
+      justify-content: flex-start;
+      padding: 52px 12px 112px;
+    }
+
+    .tree-box {
+      position: relative;
+      flex: 1;
+      width: 100%;
+    }
+
+    /* ---------- Páginas de proyecto ---------- */
+    .art {
+      width: min(90vw, 56svh);
+      aspect-ratio: 1;
+    }
+
+    .art {
+      position: relative;
+    }
+
+    .concept {
+      margin-top: -10px;
+      font-size: 0.95rem;
+      font-style: italic;
+      letter-spacing: 0.04em;
+      color: var(--ink-soft);
+    }
+
+    /* Sobre el emblema: sus tecnologías. */
+    .caption {
+      max-width: 22rem;
+    }
+
+    .name {
+      margin: 0;
+      font-size: 1.7rem;
+      letter-spacing: 0.04em;
+      text-align: center;
+    }
+
+    /* Teléfono en horizontal: el emblema a la izquierda y los textos apilados a la derecha. */
+    @media (max-height: 500px) and (orientation: landscape) {
+      .slide:not(.slide--tree) {
+        display: grid;
+        grid-template-columns: auto minmax(0, 26rem);
+        align-content: center;
+        justify-content: center;
+        justify-items: center;
+        gap: 6px 32px;
+        padding: 52px var(--gutter) 104px;
+      }
+
+      .slide:not(.slide--tree) .name {
+        font-size: 1.4rem;
+      }
+
+      .slide:not(.slide--tree) .concept {
+        margin-top: -4px;
+      }
+
+      .slide:not(.slide--tree) .art {
+        grid-column: 1;
+        grid-row: 1 / span 4;
+        align-self: center;
+      }
+
+      .slide--tree {
+        padding: 20px 12px 64px;
+      }
+
+      .art {
+        width: min(40vw, 58svh);
+      }
+    }
+
+    .dots {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 76px;
+      display: flex;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    /* Puntos como gotas de tinta: el de la página actual, lleno; los demás, apenas marcados. */
+    .dots button {
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border: 0;
+      background: none;
+      cursor: pointer;
+    }
+
+    .dots button::before {
+      content: "";
+      display: block;
+      width: 7px;
+      height: 7px;
+      margin: auto;
+      border-radius: 50%;
+      background: var(--ink);
+      opacity: 0.2;
+      transition:
+        opacity 0.3s,
+        transform 0.3s;
+    }
+
+    .dots button[aria-current="true"]::before {
+      opacity: 1;
+      transform: scale(1.3);
+    }
+  }
+</style>

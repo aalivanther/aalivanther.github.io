@@ -1,0 +1,43 @@
+---
+// Tecnologías de un proyecto, en tinta diluida y separadas solo por espacio, sin cajas ni puntos: así, al partirse
+// en dos líneas, ninguna empieza con un separador suelto.
+// Las usan el encabezado del emblema en escritorio y la página de cada proyecto en el teléfono.
+import type { Lang, Project } from "../data/projects";
+import { ui } from "../i18n/ui";
+
+/** Propiedades de la lista. */
+interface Props {
+  lang: Lang;
+  project: Project;
+}
+
+const { lang, project } = Astro.props;
+---
+
+<ul class="tags" aria-label={`${ui[lang].tagsLabel}: ${project.name}`}>
+  {project.tags.map((tag) => <li>{tag}</li>)}
+</ul>
+
+<style>
+  /* En línea y no en flex: así el navegador puede equilibrar las líneas (text-wrap: balance) y ninguna tecnología
+     queda sola en la segunda. */
+  .tags {
+    margin: 0;
+    text-align: center;
+    text-wrap: balance;
+    line-height: 2;
+    padding: 0;
+    list-style: none;
+    font-size: clamp(0.8rem, 0.95vw, 0.95rem);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+
+  /* Cada tecnología se mantiene entera («Connect RPC» no se parte). */
+  li {
+    display: inline-block;
+    margin: 0 0.75em;
+    white-space: nowrap;
+  }
+</style>

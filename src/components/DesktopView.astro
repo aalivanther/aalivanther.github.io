@@ -1,0 +1,114 @@
+---
+// Vista de escritorio: la pintura como panel lateral de profundidad a la izquierda, con los proyectos flotando
+// sobre sus racimos, y el emblema del elemento elegido en el papel libre de la derecha.
+import type { Lang } from "../data/projects";
+import EmblemGroup from "./EmblemGroup.astro";
+import { projects } from "../data/projects";
+import TechTags from "./TechTags.astro";
+import PaintingTree from "./PaintingTree.astro";
+
+/** Propiedades de la vista. */
+interface Props {
+  lang: Lang;
+}
+
+const { lang } = Astro.props;
+---
+
+<div class="desktop" data-desktop>
+  <div class="atmosphere" data-atmosphere aria-hidden="true">
+    <canvas data-depth style="--d:0.5"></canvas>
+    <canvas data-depth style="--d:1.5"></canvas>
+    <canvas data-depth style="--d:3.4"></canvas>
+  </div>
+  <PaintingTree lang={lang} variant="wide" />
+  <div class="art" data-art>
+    <EmblemGroup hook="data-ink-group" />
+    <EmblemGroup hook="data-ink-group" />
+  </div>
+  {/* Sobre el emblema, las tecnologías del proyecto elegido. Todas quedan en el HTML (buscadores). */}
+  <div class="captions">
+    {
+      projects.map((project) => (
+        <div class="caption" data-caption={project.slug}>
+          <TechTags lang={lang} project={project} />
+        </div>
+      ))
+    }
+  </div>
+</div>
+
+<style>
+  /* Medidas del emblema de la derecha: las comparten el emblema, su encabezado y los accesos de cada proyecto. */
+  .desktop {
+    --art-right: clamp(24px, 6vw, 110px);
+    --art-size: min(36vw, 56svh);
+    --caption-width: min(46vw, 36rem);
+    position: absolute;
+    inset: 0;
+  }
+
+  /* Atmósfera del papel libre: tres lienzos a pantalla completa, detrás de la pintura y del emblema. */
+  .atmosphere {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .atmosphere canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* El emblema vive en el papel libre a la derecha, donde la pintura ya se disolvió, centrado en la altura. */
+  .art {
+    position: absolute;
+    top: 50%;
+    right: var(--art-right);
+    width: var(--art-size);
+    aspect-ratio: 1;
+    transform: translateY(-50%);
+    z-index: 3;
+  }
+
+  /* Encabezado del emblema: sus tecnologías. Se apoya en el borde superior del emblema y es algo más ancho que él
+     (centrado), para que la lista quepa en una o dos líneas. */
+  .captions {
+    position: absolute;
+    right: calc(var(--art-right) + (var(--art-size) - var(--caption-width)) / 2);
+    bottom: calc(50% + var(--art-size) / 2 + 10px);
+    width: var(--caption-width);
+    z-index: 3;
+    text-align: center;
+    pointer-events: none;
+  }
+
+  .caption {
+    position: absolute;
+    inset: auto 0 0;
+    opacity: 0;
+    translate: 0 -6px;
+    transition:
+      opacity 0.6s var(--ease),
+      translate 0.6s var(--ease);
+  }
+
+  .caption[data-active] {
+    opacity: 1;
+    translate: 0 0;
+    transition-delay: 0.25s;
+  }
+
+  :global([data-stage][data-project]) .art {
+    cursor: pointer;
+  }
+
+  /* Mismo criterio que MOBILE_QUERY en scripts/ink/app.ts. */
+  @media (max-width: 820px), (max-aspect-ratio: 4/5), (max-height: 500px) {
+    .desktop {
+      display: none;
+    }
+  }
+</style>

@@ -1,0 +1,4 @@
+# Dependencias a las que pnpm deja correr su script de instalación (binarios nativos).
+allowBuilds:
+  esbuild: true
+  sharp: true

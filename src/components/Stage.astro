@@ -1,0 +1,55 @@
+---
+// La portada: una hoja de papel con un emblema de tinta que se pinta en vivo.
+// En escritorio, lista y emblema conviven; en móvil, un elemento por pantalla. El vacío es parte de la composición.
+import type { Lang } from "../data/projects";
+import { owner } from "../data/site";
+import { ui } from "../i18n/ui";
+import DesktopView from "./DesktopView.astro";
+import Footer from "./Footer.astro";
+import InkDefs from "./InkDefs.astro";
+import MobilePager from "./MobilePager.astro";
+import TopBar from "./TopBar.astro";
+
+/** Propiedades de la portada. */
+interface Props {
+  lang: Lang;
+}
+
+const { lang } = Astro.props;
+---
+
+<section class="stage" data-stage>
+  <h1 class="sr-only">{owner} — {ui[lang].brandLine}</h1>
+  <InkDefs />
+  <TopBar lang={lang} />
+  <DesktopView lang={lang} />
+  <MobilePager lang={lang} />
+  <Footer lang={lang} />
+  <svg class="drop" aria-hidden="true" focusable="false">
+    <circle data-drop-circle cx="0" cy="0" r="0" filter="url(#ink-bleed)"></circle>
+  </svg>
+</section>
+
+<style>
+  /* Una sola pantalla, sin alto mínimo: en pantallas bajas el paginador se adapta en lugar de desbordar. */
+  .stage {
+    position: relative;
+    height: 100svh;
+    overflow: hidden;
+  }
+
+  /* Gota de tinta que cubre la pantalla al entrar a una demo. */
+  .drop {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    fill: var(--ink);
+  }
+</style>
+
+<script>
+  import "../scripts/ink/app";
+</script>

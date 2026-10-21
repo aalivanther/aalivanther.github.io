@@ -1,0 +1,11 @@
+# Dependencias y salidas regenerables
+node_modules/
+dist/
+.astro/
+# Sistema
+.DS_Store
+# Variables locales
+.env
+.env.*
+# Original de la pintura del árbol (tools/arbol.mjs lo descarga si falta; se publican sus derivados en public/art)
+art-source/

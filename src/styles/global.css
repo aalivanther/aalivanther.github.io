@@ -1,0 +1,105 @@
+/* Estilos globales: papel, tinta y tipografía de pincel.
+   La página es una hoja de papel washi; todo lo demás es tinta negra y un único sello bermellón. */
+
+@import "@fontsource/yuji-syuku/400.css";
+
+/* ---------- Tokens ---------- */
+:root {
+  color-scheme: light;
+  --paper: #f4f0e6;
+  --ink: #0b0908;
+  /* Gris de tinta diluida para lo secundario; mantiene contraste AA (≥ 4.5:1) sobre el papel. */
+  --ink-soft: #6b655c;
+  --ink-faint: rgb(24 21 19 / 0.14);
+  --seal: #c43426;
+  /* Rojo de ciruelo, tomado de las flores de la pintura del árbol. */
+  --blossom: #d44a5a;
+  /* Yuji Syuku: letra de pincel caligráfico, legible, acorde con la tinta. */
+  --font: "Yuji Syuku", "Hiragino Mincho ProN", "Yu Mincho", Georgia, serif;
+  /* Margen lateral de la página: 16 px mínimo en móvil. */
+  --gutter: clamp(20px, 7vw, 120px);
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  /* Pincelada corta en tinta para subrayar el elemento activo: entra con peso y sale afilada. */
+  --brush-line: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 20' preserveAspectRatio='none'><path d='M3 11 C4 6 12 5 30 6 C80 7 140 8 197 9 C150 11 90 13 40 15 C18 16 4 16 3 11 Z' fill='%230b0908'/><path d='M120 9.5 L196 9.2' stroke='%23f4f0e6' stroke-width='0.7' opacity='0.8'/><path d='M150 10.6 L192 10' stroke='%23f4f0e6' stroke-width='0.5' opacity='0.7'/></svg>");
+  /* Fibra del papel: ruido fractal muy tenue y unas vetas largas horizontales, generadas en SVG (sin imágenes). */
+  --fiber: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='320' height='320'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.35 0 0 0 0 0.3 0 0 0 0 0.22 0 0 0 0.07 0'/></filter><filter id='v'><feTurbulence type='fractalNoise' baseFrequency='0.004 0.09' numOctaves='2' seed='4' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.4 0 0 0 0 0.34 0 0 0 0 0.25 0 0 0 0.09 -0.02'/></filter><rect width='320' height='320' filter='url(%23n)'/><rect width='320' height='320' filter='url(%23v)'/></svg>");
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--paper);
+  background-image: var(--fiber);
+  color: var(--ink);
+  font-family: var(--font);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Foco visible siempre al navegar con teclado: un subrayado de tinta, acorde con la página. */
+:focus-visible {
+  outline: 1.5px solid var(--ink);
+  outline-offset: 4px;
+  border-radius: 2px;
+}
+
+/* Profundidad compartida: todo lo marcado con data-depth se desplaza con el parallax de la portada según su
+   --d (scripts/ink/painting.ts publica --sx y --sy). Con movimiento reducido no hay desplazamiento. */
+[data-depth] {
+  translate: calc(var(--sx, 0px) * var(--d, 1)) calc(var(--sy, 0px) * var(--d, 1));
+}
+
+/* Texto solo para lectores de pantalla. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Enlace para saltar directo a los proyectos, visible solo al recibir foco. */
+.skip {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 100;
+  padding: 8px 14px;
+  background: var(--ink);
+  color: var(--paper);
+  transform: translateY(-160%);
+  transition: transform 0.2s var(--ease);
+}
+
+.skip:focus-visible {
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

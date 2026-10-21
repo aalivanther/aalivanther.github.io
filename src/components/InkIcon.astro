@@ -1,0 +1,95 @@
+---
+// Iconos de acceso rápido en tinta (también el sobre del contacto), con dos capas como los emblemas: una aguada tenue detrás y el trazo delante.
+// Al pasar el puntero o enfocar, las capas se separan (el trazo sube y la aguada baja), un pequeño efecto 3D que
+// sigue el mismo lenguaje de profundidad de la portada. Iconos: demo (flecha que sale), código (GitHub) y
+// documentación (libro abierto). El filtro «ink-rough» de la portada les irregulariza el borde.
+
+/** Propiedades del icono. */
+interface Props {
+  name: "demo" | "github" | "docs" | "mail";
+}
+
+const { name } = Astro.props;
+---
+
+<span class="icon">
+  <svg class="wash" viewBox="0 0 24 24" width="28" height="28" aria-hidden="true" focusable="false">
+    <path filter="url(#ink-rough)" d="M12.4 3.2c4.6.3 8.6 3.6 8.4 8.6-.2 4.9-4.1 8.8-8.9 8.9-4.9.1-8.9-3.4-8.8-8.5.1-5 4.4-9.3 9.3-9z" />
+  </svg>
+  <svg class="stroke" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false">
+    <g filter="url(#ink-rough)">
+      {
+        name === "demo" && (
+          <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5.4 18.6 Q10.8 13.6 16.9 7.3" stroke-width="2.3" />
+            <path d="M9.8 6.4 Q13.8 6.5 17.6 6.4 Q17.5 10.1 17.8 13.8" stroke-width="1.8" />
+            <circle cx="5.2" cy="18.8" r="1.2" fill="currentColor" stroke="none" />
+          </g>
+        )
+      }
+      {
+        name === "docs" && (
+          <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 6.8 Q8 4.6 3.4 5.6 L3.6 18.2 Q8.2 17.2 12 19.2" stroke-width="1.8" />
+            <path d="M12 6.8 Q16 4.6 20.6 5.6 L20.4 18.2 Q15.8 17.2 12 19.2" stroke-width="1.8" />
+            <path d="M12 6.9 L12 19" stroke-width="1.2" />
+            <path d="M6 9 Q8 8.6 10 9.4 M6 12 Q8 11.6 10 12.4 M14 9.4 Q16 8.6 18 9 M14 12.4 Q16 11.6 18 12" stroke-width="0.9" opacity="0.7" />
+          </g>
+        )
+      }
+      {
+        name === "mail" && (
+          <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3.6 6.4 Q12 5.6 20.4 6.5 L20.2 17.8 Q12 18.4 3.8 17.6 Z" stroke-width="1.8" />
+            <path d="M4 7 Q8.4 11.2 12 13 Q15.6 11.2 20 7.1" stroke-width="1.6" />
+          </g>
+        )
+      }
+      {
+        name === "github" && (
+          <path
+            fill="currentColor"
+            d="M12 1.8C6.4 1.8 1.9 6.3 1.9 11.9c0 4.5 2.9 8.3 6.9 9.6.5.1.7-.2.7-.5v-1.8c-2.8.6-3.4-1.2-3.4-1.2-.5-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.4 1.1 2.9.8.1-.7.4-1.1.6-1.3-2.2-.3-4.6-1.1-4.6-5 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.7 0 0 .8-.3 2.8 1a9.6 9.6 0 0 1 5 0c1.9-1.3 2.8-1 2.8-1 .6 1.4.2 2.4.1 2.7.6.7 1 1.6 1 2.7 0 3.9-2.4 4.7-4.6 5 .4.3.7.9.7 1.9v2.8c0 .3.2.6.7.5 4-1.3 6.9-5.1 6.9-9.6C22.1 6.3 17.6 1.8 12 1.8Z"
+          />
+        )
+      }
+    </g>
+  </svg>
+</span>
+
+<style>
+  .icon {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    color: var(--ink);
+  }
+
+  .wash,
+  .stroke {
+    position: absolute;
+    transition:
+      translate 0.35s var(--ease),
+      opacity 0.35s,
+      color 0.35s;
+  }
+
+  /* Aguada: el mismo sepia de la pintura, muy diluido. */
+  .wash {
+    fill: rgb(52 45 39 / 0.1);
+  }
+
+  /* Al pasar el puntero, el trazo se eleva sobre su aguada y la aguada se tiñe del rojo de las flores. */
+  :global(a:hover) > .icon .stroke,
+  :global(a:focus-visible) > .icon .stroke {
+    translate: -1.5px -2px;
+  }
+
+  :global(a:hover) > .icon .wash,
+  :global(a:focus-visible) > .icon .wash {
+    translate: 1.5px 2px;
+    fill: rgb(212 74 90 / 0.18);
+  }
+</style>
