@@ -18,13 +18,15 @@ const SEAL_RGB = "196, 52, 38";
 const BLOSSOM_RGB = "212, 74, 90";
 
 /** Ruta de la textura de seda que genera tools/arbol.mjs. */
-const SILK_SRC = "/art/silk.png";
+const SILK_SRC = "/art/silk.webp";
 
 /**
  * Imagen de la textura de seda, compartida por todos los pinceles. Se pide una sola vez al cargar el módulo;
  * si no carga, los trazos salen sin textura y todo lo demás sigue igual.
  */
 const silkImage: HTMLImageElement | null = typeof Image === "undefined" ? null : Object.assign(new Image(), { src: SILK_SRC, decoding: "async" });
+/** Se cumple cuando la seda ya se puede usar (o falló: entonces se pinta sin ella). */
+const silkReady: Promise<void> = silkImage ? silkImage.decode().catch(() => undefined) : Promise.resolve();
 
 /** Colores que puede llevar una marca. */
 export type InkColor = "ink" | "seal" | "blossom";
@@ -294,6 +296,21 @@ function sampleStroke(stroke: Stroke, random: () => number): Sample[] {
   return samples;
 }
 
+/** Rectángulo en píxeles del lienzo: [izquierda, arriba, derecha, abajo]. */
+type Rect = [number, number, number, number];
+
+/** Une dos rectángulos (null es «vacío»). */
+function union(a: Rect | null, b: Rect | null): Rect | null {
+  if (!a) return b;
+  if (!b) return a;
+  return [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])];
+}
+
+/** Agranda un rectángulo `by` píxeles por lado. */
+function grow(rect: Rect, by: number): Rect {
+  return [rect[0] - by, rect[1] - by, rect[2] + by, rect[3] + by];
+}
+
 /** Cerda del pincel: posición relativa en el ancho (−1 a 1), carga de tinta y ritmo de secado. */
 interface Bristle {
   offset: number;
@@ -313,6 +330,12 @@ function createBristles(random: () => number): Bristle[] {
 /**
  * Pinta emblemas en un lienzo, trazo a trazo y en tiempo real.
  * Usa dos capas fuera de pantalla: lo ya pintado y el trazo en curso.
+ *
+ * Rendimiento (el resultado es el mismo píxel a píxel):
+ * - Las capas fuera de pantalla solo existen mientras se pinta; al terminar se sueltan, y al borrar se suelta
+ *   también el lienzo visible. Con la atmósfera a pantalla completa eran cientos de MB de lienzos quietos.
+ * - Cada cuadro compone, aplica el grano y difumina solo el rectángulo que cambió, no el lienzo entero: fuera de
+ *   él la capa del trazo está vacía y lo ya pintado no cambió.
  */
 export class InkPainter {
   private readonly context: CanvasRenderingContext2D;
@@ -329,6 +352,10 @@ export class InkPainter {
   private currentTone = 1;
   /** Patrón de la textura de seda; null mientras la imagen no ha cargado. */
   private grain: CanvasPattern | null = null;
+  /** Dónde hay tinta en la capa del trazo en curso, desde la última vez que se fundió. */
+  private inLayer: Rect | null = null;
+  /** Dónde cambió lo ya pintado desde la última composición. */
+  private changed: Rect | null = null;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     const context = canvas.getContext("2d");
@@ -354,11 +381,27 @@ export class InkPainter {
     if ((width === this.width && height === this.height) || width === 0 || height === 0) return;
     this.width = width;
     this.height = height;
-    for (const target of [this.canvas, this.committed, this.layer]) {
-      target.width = width;
-      target.height = height;
-    }
+    this.canvas.width = width;
+    this.canvas.height = height;
     this.scale = width / 1000;
+  }
+
+  /** Da a las capas fuera de pantalla el tamaño del lienzo (solo mientras se pinta). */
+  private allocate(): void {
+    for (const target of [this.committed, this.layer]) {
+      if (target.width !== this.width || target.height !== this.height) {
+        target.width = this.width;
+        target.height = this.height;
+      }
+    }
+  }
+
+  /** Suelta la memoria de las capas fuera de pantalla: cuando el emblema está terminado ya no se usan. */
+  private release(): void {
+    for (const target of [this.committed, this.layer]) {
+      target.width = 0;
+      target.height = 0;
+    }
   }
 
   /** Alto del lienzo en unidades de diseño (el ancho siempre es 1000). */
@@ -366,13 +409,28 @@ export class InkPainter {
     return this.width ? (this.height / this.width) * 1000 : 1000;
   }
 
-  /** Borra todo y detiene cualquier pintura en curso. */
+  /**
+   * Borra todo, detiene cualquier pintura en curso y suelta la memoria de los lienzos. Un lienzo sin tamaño se ve
+   * igual que uno borrado (transparente); resize() le devuelve su tamaño antes de la siguiente pintura.
+   */
   clear(): void {
+    this.reset();
+    this.release();
+    this.canvas.width = 0;
+    this.canvas.height = 0;
+    this.width = 0;
+    this.height = 0;
+  }
+
+  /** Detiene la pintura en curso y deja los tres lienzos en blanco, sin cambiar su tamaño. */
+  private reset(): void {
     this.token++;
     cancelAnimationFrame(this.frame);
     this.context.clearRect(0, 0, this.width, this.height);
-    this.committedContext.clearRect(0, 0, this.width, this.height);
-    this.layerContext.clearRect(0, 0, this.width, this.height);
+    this.committedContext.clearRect(0, 0, this.committed.width, this.committed.height);
+    this.layerContext.clearRect(0, 0, this.layer.width, this.layer.height);
+    this.inLayer = null;
+    this.changed = null;
   }
 
   /**
@@ -381,8 +439,11 @@ export class InkPainter {
    * La promesa se cumple cuando termina el último trazo, o de inmediato si otra pintura la interrumpe.
    */
   paint(marks: readonly Mark[], seed: number, instant: boolean): Promise<void> {
-    this.clear();
+    this.reset();
     const token = this.token;
+    // Sin la seda, los trazos saldrían lisos: si aún no cargó (pasaba al pintar al instante), se espera.
+    if (silkImage && !silkImage.complete) return silkReady.then(() => (token === this.token ? this.paint(marks, seed, instant) : undefined));
+    this.allocate();
     const random = createRandom(seed);
     // Se precalcula todo el emblema antes de empezar para que la animación no tenga tirones.
     // Cada trazo se varía una vez y el resultado se usa para todo: forma, sequedad y grosor.
@@ -395,6 +456,7 @@ export class InkPainter {
     if (instant) {
       for (const step of plan) this.drawMark(step.mark, step.samples, step.bristles, 1, 0, random, true);
       this.compose();
+      this.release();
       return Promise.resolve();
     }
 
@@ -431,6 +493,7 @@ export class InkPainter {
         }
         if (drew) this.compose();
         if (index >= plan.length) {
+          this.release();
           resolve();
           return;
         }
@@ -506,6 +569,10 @@ export class InkPainter {
           target.moveTo(ax, ay);
           target.lineTo(bx, by);
         }
+        // Hasta dónde llega el tramo: el pincel entero (las cerdas salen un poco del radio) más el grosor de cerda.
+        const reachA = a.radius * 1.1 * s + width;
+        const reachB = b.radius * 1.1 * s + width;
+        this.touch([Math.min(a.x * s - reachA, b.x * s - reachB), Math.min(a.y * s - reachA, b.y * s - reachB), Math.max(a.x * s + reachA, b.x * s + reachB), Math.max(a.y * s + reachA, b.y * s + reachB)]);
         ctx.lineWidth = width;
         ctx.strokeStyle = `rgb(${rgb})`;
         ctx.stroke(wet);
@@ -533,7 +600,9 @@ export class InkPainter {
     const [cx, cy] = mark.wash;
     const radius = mark.radius * (0.4 + 0.6 * Math.sqrt(reach)) * s;
     const VERTICES = 40;
-    ctx.clearRect(0, 0, this.width, this.height);
+    this.clearLayer();
+    // El contorno nunca pasa de 0,98 del radio.
+    this.touch([cx * s - radius, cy * s - radius, cx * s + radius, cy * s + radius]);
     ctx.save();
     ctx.beginPath();
     for (let i = 0; i <= VERTICES; i++) {
@@ -573,7 +642,9 @@ export class InkPainter {
     const radius = mark.radius * (0.35 + 0.65 * Math.sqrt(reach));
     const red = COLORS[mark.color ?? "blossom"];
     const turn = mark.turn ?? 0;
-    ctx.clearRect(0, 0, this.width, this.height);
+    this.clearLayer();
+    // El halo es lo más grande de la flor: el doble de su radio.
+    this.touch([(cx - radius * 2) * s, (cy - radius * 2) * s, (cx + radius * 2) * s, (cy + radius * 2) * s]);
     if (mark.bud) {
       this.blob(cx, cy, radius * 0.55, red, random, 0.92);
       this.blob(cx, cy + radius * 0.5, radius * 0.18, INK_RGB, random);
@@ -606,6 +677,9 @@ export class InkPainter {
     const ctx = this.layerContext;
     const s = this.scale;
     const VERTICES = 30;
+    // El borde irregular llega a 1,04 del radio.
+    const reach = radius * 1.1 * s;
+    this.touch([cx * s - reach, cy * s - reach, cx * s + reach, cy * s + reach]);
     ctx.globalCompositeOperation = "source-over";
     ctx.fillStyle = alpha >= 1 ? `rgb(${rgb})` : `rgba(${rgb}, ${alpha.toFixed(3)})`;
     ctx.beginPath();
@@ -635,8 +709,31 @@ export class InkPainter {
     return null;
   }
 
+  /** Anota que la capa del trazo tiene tinta en este rectángulo (con margen para el suavizado de bordes). */
+  private touch(rect: Rect): void {
+    this.inLayer = union(this.inLayer, grow(rect, 2));
+  }
+
+  /** El rectángulo en píxeles enteros dentro del lienzo, o null si queda fuera o vacío. */
+  private clip(rect: Rect | null): Rect | null {
+    if (!rect) return null;
+    const left = Math.max(0, Math.floor(rect[0]));
+    const top = Math.max(0, Math.floor(rect[1]));
+    const right = Math.min(this.width, Math.ceil(rect[2]));
+    const bottom = Math.min(this.height, Math.ceil(rect[3]));
+    return right > left && bottom > top ? [left, top, right - left, bottom - top] : null;
+  }
+
+  /** Vacía la capa del trazo en curso (solo donde tiene tinta: el resto ya está vacío). */
+  private clearLayer(): void {
+    const area = this.clip(this.inLayer);
+    if (area) this.layerContext.clearRect(...area);
+  }
+
   /** Funde la capa del trazo con lo ya pintado: primero un halo difuso (la tinta que se corre) y luego el trazo nítido. */
   private commit(tone: number): void {
+    const area = this.clip(this.inLayer);
+    if (!area) return;
     // Antes de fundir, el grano aclara la tinta de forma desigual.
     const pattern = this.grainPattern();
     if (pattern) {
@@ -644,40 +741,49 @@ export class InkPainter {
       this.layerContext.globalCompositeOperation = "destination-out";
       this.layerContext.globalAlpha = GRAIN_STRENGTH;
       this.layerContext.fillStyle = pattern;
-      this.layerContext.fillRect(0, 0, this.width, this.height);
+      this.layerContext.fillRect(...area);
       this.layerContext.restore();
     }
+    const blur = Math.max(1, 1.6 * this.scale * 1.4);
+    // El halo se extiende fuera de la tinta: el desenfoque se calcula con cuatro veces su radio de margen, donde el
+    // núcleo gaussiano ya no aporta nada.
+    const halo = this.clip(grow(this.inLayer!, Math.ceil(blur * 4)))!;
     const ctx = this.committedContext;
     ctx.save();
     ctx.globalAlpha = 0.42 * tone;
-    ctx.filter = `blur(${Math.max(1, 1.6 * this.scale * 1.4)}px)`;
-    ctx.drawImage(this.layer, 0, 0);
+    ctx.filter = `blur(${blur}px)`;
+    ctx.drawImage(this.layer, ...halo, ...halo);
     ctx.restore();
     ctx.save();
     ctx.globalAlpha = tone;
-    ctx.drawImage(this.layer, 0, 0);
+    ctx.drawImage(this.layer, ...area, ...area);
     ctx.restore();
-    this.layerContext.clearRect(0, 0, this.width, this.height);
+    this.layerContext.clearRect(...area);
+    this.changed = union(this.changed, [halo[0], halo[1], halo[0] + halo[2], halo[1] + halo[3]]);
+    this.inLayer = null;
   }
 
-  /** Dibuja en pantalla lo ya pintado más el trazo en curso. */
+  /** Dibuja en pantalla lo ya pintado más el trazo en curso, solo donde algo cambió. */
   private compose(): void {
+    const area = this.clip(union(this.inLayer, this.changed));
+    this.changed = null;
+    if (!area) return;
     const ctx = this.context;
-    ctx.clearRect(0, 0, this.width, this.height);
+    ctx.clearRect(...area);
     // El trazo en curso ya lleva su tono y su grano (el mismo patrón que se aplica al fundir, así no «salta»).
     ctx.globalAlpha = this.currentTone;
-    ctx.drawImage(this.layer, 0, 0);
+    ctx.drawImage(this.layer, ...area, ...area);
     const pattern = this.grainPattern();
     if (pattern) {
       ctx.globalCompositeOperation = "destination-out";
       ctx.globalAlpha = GRAIN_STRENGTH;
       ctx.fillStyle = pattern;
-      ctx.fillRect(0, 0, this.width, this.height);
+      ctx.fillRect(...area);
     }
     // Lo ya pintado va detrás del trazo en curso; su grano ya quedó aplicado al fundirlo.
     ctx.globalCompositeOperation = "destination-over";
     ctx.globalAlpha = 1;
-    ctx.drawImage(this.committed, 0, 0);
+    ctx.drawImage(this.committed, ...area, ...area);
     ctx.globalCompositeOperation = "source-over";
   }
 }

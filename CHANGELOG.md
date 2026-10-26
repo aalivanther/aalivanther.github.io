@@ -2,6 +2,26 @@
 
 Formato: [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado propio: +1 para un cambio normal y +10 para una funcionalidad grande validada.
 
+## [0.1.91] - 2026-10-26
+
+### Cambiado
+- Rendimiento en equipos modestos, sin cambios visibles. Medido con CPU 6× más lenta y 4G lento:
+  - en reposo, el hilo principal pasa de 345 a 21 ms por segundo;
+  - el primer pintado pasa de 2,0 a 0,6 s y la pintura completa, de 12,3 a 8,8 s;
+  - el bloqueo total al cargar baja de 2,8 a 0,5 s en escritorio y de 0,37 a 0,04 s en el teléfono;
+  - se descargan 1053 KB en lugar de 1702 KB;
+  - los lienzos ocupan 85 MB en lugar de 229 MB en una pantalla de alta densidad.
+- La profundidad (`--sx`/`--sy`) se publica en cada elemento con `data-depth`, registrada sin herencia. Antes se publicaba en la portada, y cada cuadro recalculaba el estilo de toda la página y forzaba un recálculo síncrono al leer el tamaño de la pintura.
+- En reposo, la pintura solo se vuelve a dibujar cuando lo que más se mueve avanza medio píxel del dispositivo. Sin proyecto elegido usa un programa WebGL con 5 lecturas por píxel en lugar de 31; da el mismo resultado.
+- El pincel solo compone, aplica el grano y difumina el rectángulo que cambió. Sus capas fuera de pantalla existen solo mientras pinta, y un lienzo borrado suelta su memoria.
+- Las texturas de la pintura se decodifican fuera del hilo principal (`createImageBitmap`) y se piden al montar la vista. Ya subidas a la GPU, se sueltan. Al desmontar la vista se liberan los recursos WebGL.
+- Fuente: solo los subconjuntos latinos de Yuji Syuku, y se precarga el latino. Antes el CSS de la fuente pesaba 123 KB y bloqueaba el primer pintado.
+- Los mapas de la pintura y la seda pasan a WebP sin pérdida: los mismos píxeles en 198 KB en lugar de 479 KB. `tools/arbol.mjs` ya los genera así.
+- La imagen quieta de la pintura (335 KB) solo se descarga si no hay WebGL o sin JavaScript.
+
+### Corregido
+- Con movimiento reducido, el emblema inicial y a veces la atmósfera salían sin la trama de la seda: se pintaban antes de que cargara. Ahora el pincel la espera.
+
 ## [0.1.90] - 2026-10-20
 
 ### Agregado

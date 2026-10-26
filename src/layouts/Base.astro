@@ -1,6 +1,8 @@
 ---
 // Plantilla común: metadatos, idioma y enlaces hreflang. La portada vive entera dentro de <slot />.
 import "../styles/global.css";
+// El mismo archivo que declara global.css: se precarga para que el texto salga con su letra desde el primer pintado.
+import latinFont from "@fontsource/yuji-syuku/files/yuji-syuku-latin-400-normal.woff2?url";
 import type { Lang } from "../data/projects";
 import { projects } from "../data/projects";
 import { owner, signature, githubProfile, repoUrl } from "../data/site";
@@ -62,6 +64,9 @@ const profile = {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>{t.metaTitle}</title>
+    <link rel="preload" href={latinFont} as="font" type="font/woff2" crossorigin />
+    {/* La seda de los trazos: el pincel la espera antes de pintar. */}
+    <link rel="preload" href="/art/silk.webp" as="image" type="image/webp" />
     <meta name="description" content={t.metaDescription} />
     <meta name="theme-color" content="#f4f0e6" />
     <link rel="canonical" href={canonical} />
