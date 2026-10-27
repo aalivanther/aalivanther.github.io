@@ -24,6 +24,8 @@ const SOURCE = join(projectRoot, "art-source", "wang-guxiang-1546.jpg");
 const SOURCE_URL =
   "https://upload.wikimedia.org/wikipedia/commons/8/86/Wang_Guxiang_-_White_and_Red_Plum_Blossom_-_97.133.2_-_Minneapolis_Institute_of_Art.jpg";
 const OUT = join(projectRoot, "public", "art");
+/** Los mapas y la seda son datos exactos (canales con significado propio): WebP sin pérdida, la mitad que PNG. */
+const LOSSLESS = { lossless: true, effort: 6 };
 
 /**
  * Encuadres, en fracciones del original (sin el montaje blanco de arriba y abajo ni la caligrafía de la izquierda).
@@ -411,7 +413,7 @@ function silkTexture() {
       out[(y * SIZE + x) * 4 + 3] = Math.round(Math.min(1, Math.max(0, lift)) * 255);
     }
   }
-  return sharp(out, { raw: { width: SIZE, height: SIZE, channels: 4 } }).png();
+  return sharp(out, { raw: { width: SIZE, height: SIZE, channels: 4 } }).webp(LOSSLESS);
 }
 
 /**
@@ -575,7 +577,7 @@ for (const [name, crop] of Object.entries(CROPS)) {
     maps[i * 3] = reveal[i];
     maps[i * 3 + 1] = mask[i];
   }
-  await sharp(maps, { raw: { width: map.width, height: map.height, channels: 3 } }).png().toFile(join(OUT, `${name}-maps.png`));
+  await sharp(maps, { raw: { width: map.width, height: map.height, channels: 3 } }).webp(LOSSLESS).toFile(join(OUT, `${name}-maps.webp`));
   // Caminos de rama: tres anclajes por imagen (uno por canal RGB), suavizados.
   const paths = branchPaths(clean, info.width, info.height, crop.seed, reveal, map.width, map.height);
   const sheets = Math.ceil(paths.length / 3);
@@ -587,11 +589,11 @@ for (const [name, crop] of Object.entries(CROPS)) {
       if (!path) continue;
       for (let i = 0; i < pw * ph; i++) rgbSheet[i * 3 + c] = path.bytes[i];
     }
-    await sharp(rgbSheet, { raw: { width: pw, height: ph, channels: 3 } }).blur(1.4).png().toFile(join(OUT, `${name}-paths-${sheet}.png`));
+    await sharp(rgbSheet, { raw: { width: pw, height: ph, channels: 3 } }).blur(1.4).webp(LOSSLESS).toFile(join(OUT, `${name}-paths-${sheet}.webp`));
   }
   const anchorsFile = join(projectRoot, "src", "data", "painting-anchors.json");
   const anchorData = paths.map((path) => ({ at: path.at.map((v) => Number(v.toFixed(4))), reach: Number(path.reach.toFixed(4)) }));
   await writeFile(anchorsFile, `${JSON.stringify(anchorData, null, 2)}\n`);
-  await silkTexture().toFile(join(OUT, "silk.png"));
+  await silkTexture().toFile(join(OUT, "silk.webp"));
   console.log(`${name}: ${info.width}×${info.height} · capas, mapas ${map.width}×${map.height} y seda`);
 }

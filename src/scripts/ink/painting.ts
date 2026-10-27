@@ -19,13 +19,23 @@ const TRACE_MS = 1100;
 /** Desplazamiento máximo de la capa media con el puntero, en fracción de la pintura. */
 const PARALLAX = 0.026;
 /**
- * Profundidad compartida: el bucle publica el desplazamiento de la capa media en píxeles como --sx y --sy sobre
- * la portada; todo lo que flota (proyectos, emblemas, manchas, iconos) se mueve con calc(var(--sx) × su --d).
+ * Profundidad compartida: el bucle publica el desplazamiento de la capa media en píxeles como --sx y --sy en cada
+ * elemento con data-depth de su vista (escritorio o teléfono; si no la hay, de toda la portada). Todo lo que flota
+ * (proyectos, emblemas, manchas, iconos) se mueve con calc(var(--sx) × su --d).
  */
+const DEPTH_VIEW = "[data-desktop], [data-mobile]";
 const DEPTH_HOST = "[data-stage]";
 /** Deriva en reposo: fracción del parallax máximo y periodo, en segundos. */
 const DRIFT_AMOUNT = 0.3;
 const DRIFT_PERIOD = 14;
+/**
+ * En reposo la deriva mueve la pintura unas centésimas de píxel por cuadro. Solo se vuelve a dibujar (y a publicar
+ * la profundidad) cuando el plano que más se desplaza ya avanzó este tanto, en píxeles del dispositivo: a simple
+ * vista el movimiento es el mismo, y se ahorra la mayoría de los cuadros.
+ */
+const REDRAW_PX = 0.5;
+/** El --d más alto de la portada (el plano de pétalos de la atmósfera): es lo que más se desplaza. */
+const MAX_DEPTH = 3.4;
 
 /** Sombreadores: un rectángulo que cubre el lienzo, y la pintura compuesta por planos. */
 const VERTEX = `#version 300 es
@@ -35,7 +45,7 @@ void main() {
   vUv = vec2(aPos.x * 0.5 + 0.5, 0.5 - aPos.y * 0.5);
   gl_Position = vec4(aPos, 0.0, 1.0);
 }`;
-const FRAGMENT = `#version 300 es
+const FRAGMENT_HEAD = `#version 300 es
 precision highp float;
 uniform sampler2D uWash;
 uniform sampler2D uTwig;
@@ -72,7 +82,9 @@ void main() {
   vec2 uvTwig = c * 0.995 + 0.5 + uShift * 0.6;
   vec2 uvMid = c * 0.99 + 0.5 + uShift;
   vec2 uvTrunk = c * 0.985 + 0.5 + uShift * 1.35;
-  vec2 uvBloom = c * 0.978 + 0.5 + uShift * 1.65;
+  vec2 uvBloom = c * 0.978 + 0.5 + uShift * 1.65;`;
+/** Con un proyecto elegido: la rama remarcada, su resplandor y el resto aclarado y desenfocado. */
+const ART_FOCUSED = `
   // Rama elegida: su intensidad en este punto (el canal de su imagen) y hasta dónde ha llegado el trazo.
   float growth = texture(uMaps, uvMid).r;
   float reached = smoothstep(growth - 0.04, growth, uTrace * (uReach + 0.06));
@@ -102,7 +114,16 @@ void main() {
   inked = mix(inked, vec3(0.86, 0.2, 0.26) * pow(strokes.r, 1.5), isRed);
   vec3 art = wash * mix(strokes, inked, traced * uFocus);
   art *= mix(vec3(1.0), vec3(1.0, 0.86, 0.84), glow * (1.0 - traced) * uFocus * 0.8);
-  // Crecimiento al cargar, con borde irregular y frente húmedo.
+`;
+/**
+ * Sin proyecto elegido (foco 0), el camino completo se reduce al producto de los cinco planos: basta una lectura
+ * por plano (5 en lugar de 31 por píxel). Es otro programa y no una rama del mismo: dentro de un if, las lecturas
+ * con mipmaps pierden sus derivadas y en algunas GPU salen bandas.
+ */
+const ART_CALM = `
+  vec3 art = texture(uWash, uvWash).rgb * texture(uTwig, uvTwig).rgb * texture(uBranch, uvMid).rgb * texture(uTrunk, uvTrunk).rgb * texture(uBloom, uvBloom).rgb;
+`;
+const FRAGMENT_TAIL = `  // Crecimiento al cargar, con borde irregular y frente húmedo.
   vec4 maps = texture(uMaps, vUv);
   float edge = maps.r + (hash(floor(vUv * vec2(900.0, 940.0))) - 0.5) * 0.035;
   float visible = smoothstep(edge - 0.03, edge + 0.005, uTime);
@@ -112,16 +133,51 @@ void main() {
   float mask = maps.g * fade;
   outColor = vec4(mix(vec3(1.0), art * (1.0 - 0.12 * wet), visible * mask), 1.0);
 }`;
+const FRAGMENT = FRAGMENT_HEAD + ART_FOCUSED + FRAGMENT_TAIL;
+const FRAGMENT_CALM = FRAGMENT_HEAD + ART_CALM + FRAGMENT_TAIL;
 
-/** Carga una imagen y resuelve cuando ya se puede usar como textura. */
+/** Una textura lista para subir a WebGL. */
+type Texture = ImageBitmap | HTMLImageElement;
+
+/** Carga una imagen y resuelve cuando ya está decodificada (decode() decodifica fuera del hilo principal). */
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image();
     image.decoding = "async";
-    image.onload = () => resolve(image);
+    image.onload = () => resolve(image.decode().then(() => image, () => image));
     image.onerror = () => reject(new Error(`cannot load ${src}`));
     image.src = src;
   });
+}
+
+/**
+ * Carga una textura y la decodifica fuera del hilo principal. Con una <img>, la decodificación de nueve imágenes
+ * de 1500 × 1568 ocurría dentro de texImage2D y bloqueaba la página medio segundo en un equipo modesto.
+ * Mismos píxeles que con <img>: sin premultiplicar el alfa (como UNPACK_PREMULTIPLY_ALPHA_WEBGL, que vale false)
+ * y con la conversión de color por defecto.
+ */
+async function loadTexture(src: string): Promise<Texture> {
+  if (typeof createImageBitmap === "function") {
+    try {
+      const response = await fetch(src);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await createImageBitmap(await response.blob(), { premultiplyAlpha: "none", colorSpaceConversion: "default" });
+    } catch {
+      // Navegador sin createImageBitmap para blobs, o con opciones no admitidas: se usa la imagen de siempre.
+    }
+  }
+  return loadImage(src);
+}
+
+/** Ancho y alto de una textura, sea mapa de bits o imagen. */
+function sizeOf(texture: Texture): [number, number] {
+  return texture instanceof HTMLImageElement ? [texture.naturalWidth, texture.naturalHeight] : [texture.width, texture.height];
+}
+
+/** Pide todas las texturas de la pintura en el orden de init: capas, mapas y caminos. */
+function loadTextures(variant: PaintingVariant): Promise<Texture[]> {
+  const l = variant.layers;
+  return Promise.all([l.wash, l.twig, l.branch, l.trunk, l.bloom, variant.maps, ...variant.paths].map(loadTexture));
 }
 
 /** Curva suave de 0 a 1. */
@@ -137,24 +193,43 @@ interface PaintState {
   shift: [number, number];
 }
 
+/** Un programa de la pintura y la ubicación de sus uniformes. */
+interface Program {
+  handle: WebGLProgram;
+  uniforms: Record<string, WebGLUniformLocation | null>;
+}
+
+/** Uniformes que cambian en cada cuadro o al elegir una rama (las unidades de textura se fijan una vez). */
+const UNIFORMS = ["uTime", "uFocus", "uTrace", "uReach", "uShift", "uChannel", "uTexel", "uFade"] as const;
+type Uniform = (typeof UNIFORMS)[number];
+
 /** Dibuja la pintura por planos con WebGL; si algo falla, deja que se vea la imagen quieta. */
 class PaintingCanvas {
   private gl: WebGL2RenderingContext | null = null;
-  private uniforms: Record<string, WebGLUniformLocation | null> = {};
+  /** Con foco (rama remarcada) y en calma (sin foco, mucho más barato). */
+  private programs: { focused: Program; calm: Program } | null = null;
   private pathTextures: WebGLTexture[] = [];
+  /** Todo lo creado en WebGL, para liberarlo al desmontar (el contexto del lienzo se reutiliza al volver). */
+  private resources: { programs: WebGLProgram[]; shaders: WebGLShader[]; buffer: WebGLBuffer | null; textures: WebGLTexture[] } | null = null;
   private state: PaintState = { time: 0, focus: 0, trace: 0, shift: [0, 0] };
+  private disposed = false;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly fade: [number, number],
   ) {}
 
-  /** Prepara WebGL con los planos, los mapas y los caminos. Devuelve false si el navegador no puede. */
-  async init(variant: PaintingVariant): Promise<boolean> {
+  /** Prepara WebGL con los planos, los mapas y los caminos (ya pedidos). Devuelve false si el navegador no puede. */
+  async init(textures: Promise<Texture[]>): Promise<boolean> {
     const gl = this.canvas.getContext("webgl2", { premultipliedAlpha: false, antialias: false });
     if (!gl) return false;
-    const l = variant.layers;
-    const [wash, twig, branch, trunk, bloom, maps, ...paths] = await Promise.all([l.wash, l.twig, l.branch, l.trunk, l.bloom, variant.maps, ...variant.paths].map(loadImage));
+    const loaded = await textures;
+    // La vista se desmontó mientras llegaban: no se sube nada.
+    if (this.disposed) {
+      for (const texture of loaded) if (!(texture instanceof HTMLImageElement)) texture.close();
+      return false;
+    }
+    const [wash, twig, branch, trunk, bloom, maps, ...paths] = loaded;
     if (!wash || !twig || !branch || !trunk || !bloom || !maps) return false;
     const compile = (type: number, source: string) => {
       const shader = gl.createShader(type);
@@ -164,22 +239,30 @@ class PaintingCanvas {
       if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error(`shader error: ${gl.getShaderInfoLog(shader) ?? ""}`);
       return shader;
     };
-    const program = gl.createProgram();
-    gl.attachShader(program, compile(gl.VERTEX_SHADER, VERTEX));
-    gl.attachShader(program, compile(gl.FRAGMENT_SHADER, FRAGMENT));
-    gl.linkProgram(program);
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(`program error: ${gl.getProgramInfoLog(program) ?? ""}`);
-    gl.useProgram(program);
+    const vertex = compile(gl.VERTEX_SHADER, VERTEX);
+    const shaders = [vertex];
+    /** Enlaza un programa con el vértice compartido; aPos queda en la posición 0 en los dos. */
+    const link = (fragment: string): Program => {
+      const shader = compile(gl.FRAGMENT_SHADER, fragment);
+      shaders.push(shader);
+      const handle = gl.createProgram();
+      gl.attachShader(handle, vertex);
+      gl.attachShader(handle, shader);
+      gl.bindAttribLocation(handle, 0, "aPos");
+      gl.linkProgram(handle);
+      if (!gl.getProgramParameter(handle, gl.LINK_STATUS)) throw new Error(`program error: ${gl.getProgramInfoLog(handle) ?? ""}`);
+      return { handle, uniforms: Object.fromEntries(UNIFORMS.map((name) => [name, gl.getUniformLocation(handle, name)])) };
+    };
+    const programs = { focused: link(FRAGMENT), calm: link(FRAGMENT_CALM) };
 
     const buffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
-    const position = gl.getAttribLocation(program, "aPos");
-    gl.enableVertexAttribArray(position);
-    gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
 
     /** Sube una imagen como textura en la unidad indicada, con filtrado suave. */
-    const upload = (unit: number, image: HTMLImageElement, mipmaps: boolean): WebGLTexture => {
+    const upload = (unit: number, image: Texture, mipmaps: boolean): WebGLTexture => {
       const handle = gl.createTexture();
       gl.activeTexture(gl.TEXTURE0 + unit);
       gl.bindTexture(gl.TEXTURE_2D, handle);
@@ -195,14 +278,14 @@ class PaintingCanvas {
       }
       return handle;
     };
-    upload(0, wash, true);
-    upload(1, twig, true);
-    upload(2, branch, true);
-    upload(3, trunk, true);
-    upload(4, bloom, true);
-    upload(5, maps, false);
+    // El tamaño se lee antes de soltar los mapas de bits: cerrados miden 0.
+    const [washWidth, washHeight] = sizeOf(wash);
+    const planes = [upload(0, wash, true), upload(1, twig, true), upload(2, branch, true), upload(3, trunk, true), upload(4, bloom, true), upload(5, maps, false)];
     // Cada imagen de caminos queda en su unidad (7, 8, 9…); la de la rama elegida se enlaza en la 6.
     this.pathTextures = paths.map((image, i) => upload(7 + i, image, false));
+    this.resources = { programs: [programs.focused.handle, programs.calm.handle], shaders, buffer, textures: [...planes, ...this.pathTextures] };
+    // Ya están en la GPU: los mapas de bits decodificados (unos 55 MB) se sueltan enseguida.
+    for (const texture of loaded) if (!(texture instanceof HTMLImageElement)) texture.close();
     const units: ReadonlyArray<readonly [string, number]> = [
       ["uWash", 0],
       ["uTwig", 1],
@@ -212,31 +295,54 @@ class PaintingCanvas {
       ["uMaps", 5],
       ["uPath", 6],
     ];
-    for (const [name, unit] of units) gl.uniform1i(gl.getUniformLocation(program, name), unit);
-    for (const name of ["uTime", "uFocus", "uTrace", "uReach", "uShift", "uChannel", "uTexel", "uFade"]) {
-      this.uniforms[name] = gl.getUniformLocation(program, name);
+    for (const program of [programs.focused, programs.calm]) {
+      gl.useProgram(program.handle);
+      for (const [name, unit] of units) gl.uniform1i(gl.getUniformLocation(program.handle, name), unit);
+      gl.uniform2f(program.uniforms.uTexel ?? null, 1 / washWidth, 1 / washHeight);
+      gl.uniform2f(program.uniforms.uFade ?? null, this.fade[0], this.fade[1]);
+      gl.uniform4f(program.uniforms.uChannel ?? null, 0, 0, 0, 0);
     }
-    gl.uniform2f(this.uniforms["uTexel"] ?? null, 1 / wash.naturalWidth, 1 / wash.naturalHeight);
-    gl.uniform2f(this.uniforms["uFade"] ?? null, this.fade[0], this.fade[1]);
-    gl.uniform4f(this.uniforms["uChannel"] ?? null, 0, 0, 0, 0);
+    this.programs = programs;
     this.gl = gl;
     return true;
+  }
+
+  /** Ubicación de un uniforme del programa con foco (el único que remarca ramas). */
+  private focused(name: Uniform): WebGLUniformLocation | null {
+    return this.programs?.focused.uniforms[name] ?? null;
+  }
+
+  /** Libera lo creado en WebGL (al desmontar la vista; si se vuelve a montar, init lo crea otra vez). */
+  dispose(): void {
+    this.disposed = true;
+    const gl = this.gl;
+    const resources = this.resources;
+    this.gl = null;
+    this.resources = null;
+    this.programs = null;
+    this.pathTextures = [];
+    if (!gl || !resources) return;
+    resources.textures.forEach((texture) => gl.deleteTexture(texture));
+    gl.deleteBuffer(resources.buffer);
+    resources.programs.forEach((program) => gl.deleteProgram(program));
+    resources.shaders.forEach((shader) => gl.deleteShader(shader));
   }
 
   /** Elige qué rama se remarca: su imagen de caminos y su canal; un hueco sin camino apaga el remarcado. */
   selectPath(slot: number, reach: number): void {
     const gl = this.gl;
-    if (!gl) return;
+    if (!gl || !this.programs) return;
+    gl.useProgram(this.programs.focused.handle);
     const texture = this.pathTextures[Math.floor(slot / 3)];
     if (slot < 0 || !texture) {
-      gl.uniform4f(this.uniforms["uChannel"] ?? null, 0, 0, 0, 0);
+      gl.uniform4f(this.focused("uChannel"), 0, 0, 0, 0);
       return;
     }
     gl.activeTexture(gl.TEXTURE6);
     gl.bindTexture(gl.TEXTURE_2D, texture);
     const channel = slot % 3;
-    gl.uniform4f(this.uniforms["uChannel"] ?? null, channel === 0 ? 1 : 0, channel === 1 ? 1 : 0, channel === 2 ? 1 : 0, 0);
-    gl.uniform1f(this.uniforms["uReach"] ?? null, reach);
+    gl.uniform4f(this.focused("uChannel"), channel === 0 ? 1 : 0, channel === 1 ? 1 : 0, channel === 2 ? 1 : 0, 0);
+    gl.uniform1f(this.focused("uReach"), reach);
   }
 
   /** Ajusta el lienzo a su tamaño en pantalla y vuelve a dibujar. */
@@ -260,12 +366,15 @@ class PaintingCanvas {
   /** Dibuja un cuadro con el estado actual. */
   private render(): void {
     const gl = this.gl;
-    if (!gl) return;
+    if (!gl || !this.programs) return;
+    // Sin foco, el programa en calma da el mismo resultado con una fracción de las lecturas.
+    const program = this.state.focus > 0 ? this.programs.focused : this.programs.calm;
+    gl.useProgram(program.handle);
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-    gl.uniform1f(this.uniforms["uTime"] ?? null, this.state.time);
-    gl.uniform1f(this.uniforms["uFocus"] ?? null, this.state.focus);
-    gl.uniform1f(this.uniforms["uTrace"] ?? null, this.state.trace);
-    gl.uniform2f(this.uniforms["uShift"] ?? null, this.state.shift[0], this.state.shift[1]);
+    gl.uniform1f(program.uniforms.uTime ?? null, this.state.time);
+    gl.uniform1f(program.uniforms.uFocus ?? null, this.state.focus);
+    gl.uniform1f(program.uniforms.uTrace ?? null, this.state.trace);
+    gl.uniform2f(program.uniforms.uShift ?? null, this.state.shift[0], this.state.shift[1]);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 }
@@ -276,7 +385,19 @@ export class InkTree {
   private readonly frame: HTMLElement;
   private readonly painting: PaintingCanvas | null;
   private readonly labels: HTMLElement[];
-  private readonly depthHost: HTMLElement | null;
+  /**
+   * Lo que flota con la profundidad en esta vista. Cada uno recibe --sx/--sy directamente (global.css los registra
+   * sin herencia): publicarlos en la portada invalidaba el estilo de todos sus elementos en cada cuadro.
+   */
+  private readonly depthTargets: HTMLElement[];
+  /** Texturas pedidas al montar, antes de que las fuentes terminen de cargar. */
+  private textures: Promise<Texture[]> | null = null;
+  /** Tamaño de la pintura en pantalla (CSS px), medido al colocar: leerlo en cada cuadro forzaba un recálculo. */
+  private frameSize: [number, number] = [0, 0];
+  /** Desplazamiento con el que se dibujó el último cuadro. */
+  private drawnShift: [number, number] = [0, 0];
+  /** Foco con el que se dibujó el último cuadro. */
+  private drawnFocus = 0;
   private ready: Promise<boolean> | null = null;
   private grown = false;
   private selected = -1;
@@ -304,7 +425,9 @@ export class InkTree {
     // En escritorio la pintura se disuelve hacia la derecha; en el teléfono, hacia abajo.
     this.painting = gl ? new PaintingCanvas(gl, tall ? [0, 0.3] : [0.36, 0]) : null;
     this.labels = Array.from(root.querySelectorAll<HTMLElement>("[data-branch]"));
-    this.depthHost = root.closest<HTMLElement>(DEPTH_HOST);
+    const view = root.closest<HTMLElement>(DEPTH_VIEW) ?? root.closest<HTMLElement>(DEPTH_HOST);
+    this.depthTargets = view ? Array.from(view.querySelectorAll<HTMLElement>("[data-depth]")) : [];
+    if (this.painting) this.textures = loadTextures(this.variant);
     window.addEventListener("pointermove", this.onPointer, { passive: true });
     window.addEventListener("deviceorientation", this.onTilt);
     document.addEventListener("visibilitychange", this.onVisibility);
@@ -346,15 +469,23 @@ export class InkTree {
     this.root.setAttribute("data-tree-ready", "");
     if (this.grown) {
       this.painting?.resize();
+      // El tamaño cambió: el siguiente cuadro vuelve a publicar la profundidad aunque la pintura no se haya movido.
+      this.drawnFocus = Number.NaN;
       return;
     }
     this.grown = true;
-    this.ready ??= (this.painting?.init(this.variant) ?? Promise.resolve(false)).catch((error: unknown) => {
+    this.textures ??= this.painting ? loadTextures(this.variant) : null;
+    this.ready ??= (this.painting && this.textures ? this.painting.init(this.textures) : Promise.resolve(false)).catch((error: unknown) => {
       console.error(`painting disabled: ${error instanceof Error ? error.message : String(error)}`);
       return false;
     });
     void this.ready.then((ok) => {
       this.root.toggleAttribute("data-gl", ok);
+      // Sin WebGL se muestra la imagen quieta, que hasta ahora no se había descargado.
+      if (!ok) {
+        const still = this.frame.querySelector<HTMLImageElement>("[data-painting-img]");
+        if (still?.dataset.src && !still.getAttribute("src")) still.src = still.dataset.src;
+      }
       this.painting?.resize();
       if (!ok || instant) {
         this.painting?.draw({ time: 1.05 });
@@ -400,6 +531,9 @@ export class InkTree {
     window.removeEventListener("deviceorientation", this.onTilt);
     document.removeEventListener("visibilitychange", this.onVisibility);
     this.observer.disconnect();
+    this.painting?.dispose();
+    this.textures = null;
+    this.ready = null;
     this.root.removeAttribute("data-tree-ready");
     this.root.removeAttribute("data-tree-painted");
     this.grown = false;
@@ -421,6 +555,8 @@ export class InkTree {
     if (this.running || this.reducedMotion || !this.onScreen) return;
     this.running = true;
     let last = performance.now();
+    // El primer cuadro tras arrancar siempre se dibuja.
+    let force = true;
     const step = (now: number) => {
       if (!this.running) return;
       const dt = Math.min(0.05, (now - last) / 1000);
@@ -432,12 +568,25 @@ export class InkTree {
       const k = 1 - Math.exp(-dt * (idle ? 1.2 : 4));
       this.shift = [this.shift[0] + (-target[0] * PARALLAX - this.shift[0]) * k, this.shift[1] + (-target[1] * PARALLAX - this.shift[1]) * k];
       this.focus += (this.focusTarget - this.focus) * (1 - Math.exp(-dt * 4));
-      if (this.trace < 1) this.trace = ease(Math.min(1, (now - this.traceStart) / TRACE_MS));
-      this.painting?.draw({ shift: this.shift, focus: this.focus, trace: this.trace });
-      // Profundidad compartida para todo lo que flota sobre el papel.
-      if (this.depthHost) {
-        this.depthHost.style.setProperty("--sx", `${(-this.shift[0] * this.frame.clientWidth).toFixed(2)}px`);
-        this.depthHost.style.setProperty("--sy", `${(-this.shift[1] * this.frame.clientHeight).toFixed(2)}px`);
+      // El foco se acerca a su meta sin llegar nunca: a una milésima ya no se distingue y se fija.
+      if (Math.abs(this.focusTarget - this.focus) < 0.001) this.focus = this.focusTarget;
+      const tracing = this.trace < 1;
+      if (tracing) this.trace = ease(Math.min(1, (now - this.traceStart) / TRACE_MS));
+      // Cuánto se movió, desde el último cuadro dibujado, lo que más se desplaza, en píxeles del dispositivo.
+      const [width, height] = this.frameSize;
+      const moved = Math.max(Math.abs(this.shift[0] - this.drawnShift[0]) * width, Math.abs(this.shift[1] - this.drawnShift[1]) * height) * MAX_DEPTH * (window.devicePixelRatio || 1);
+      if (force || tracing || this.focus !== this.drawnFocus || moved >= REDRAW_PX) {
+        force = false;
+        this.drawnShift = [this.shift[0], this.shift[1]];
+        this.drawnFocus = this.focus;
+        this.painting?.draw({ shift: this.shift, focus: this.focus, trace: this.trace });
+        // Profundidad compartida para todo lo que flota sobre el papel.
+        const sx = `${(-this.shift[0] * width).toFixed(2)}px`;
+        const sy = `${(-this.shift[1] * height).toFixed(2)}px`;
+        for (const target of this.depthTargets) {
+          target.style.setProperty("--sx", sx);
+          target.style.setProperty("--sy", sy);
+        }
       }
       this.motionId = requestAnimationFrame(step);
     };
@@ -460,6 +609,7 @@ export class InkTree {
     if (rootBox.width === 0 || frameBox.width === 0) return;
     const left = frameBox.left - rootBox.left;
     const top = frameBox.top - rootBox.top;
+    this.frameSize = [this.frame.clientWidth, this.frame.clientHeight];
     const [crown, ...projects] = this.labels;
     if (crown) {
       crown.style.left = `${Math.max(12, left + frameBox.width * 0.05)}px`;

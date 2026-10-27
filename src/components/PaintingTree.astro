@@ -25,7 +25,10 @@ const art = plumPainting;
 
 <nav class:list={["tree", `tree--${variant}`]} data-tree data-variant={variant} aria-label={t.projectsLabel} style={`--ratio:${art.width / art.height}`}>
   <div class="frame" data-painting-frame>
-    <img class="painting-img" src={art.src} alt="" aria-hidden="true" width={art.width} height={art.height} decoding="async" />
+    {/* La imagen quieta solo se ve sin WebGL: no lleva src y el script se lo pone si WebGL falla. Así no se descargan
+        335 KB que nunca se ven. Sin JavaScript, la de <noscript> ocupa su lugar. */}
+    <img class="painting-img" data-painting-img data-src={art.src} alt="" aria-hidden="true" width={art.width} height={art.height} decoding="async" />
+    <noscript><img class="painting-img" src={art.src} alt="" aria-hidden="true" width={art.width} height={art.height} decoding="async" /></noscript>
     <canvas class="painting-gl" data-painting-gl aria-hidden="true"></canvas>
   </div>
   <ul class="floats" data-floats data-depth style="--d:2.9">
